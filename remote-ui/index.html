@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Remote Driver Controller</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <style>
     body { font-family: system-ui, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
     .container { display: grid; grid-template-columns: 1.5fr 1.2fr 340px; gap: 20px; }
@@ -63,7 +63,13 @@
   </div>
 
   <script>
-  const socket = io(); // Connects automatically to the host server
+  // Connect to the server that served this page (works on Render and localhost)
+  const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
+  socket.on('connect', () => {
+    console.log('[RemoteUI] Connected to relay server, registering as driver...');
+    socket.emit('register:role', 'driver');
+  });
+  socket.on('connect_error', (err) => console.error('[RemoteUI] Connection error:', err.message));
 
   function sendMode(mode) {
     socket.emit('driver:trigger-mode', { mode, text: '' });
