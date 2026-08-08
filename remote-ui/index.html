@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Remote Driver Controller</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
+    .container { display: grid; grid-template-columns: 1.5fr 1.2fr 340px; gap: 20px; }
+    @media (max-width: 1200px) {
+      .container { grid-template-columns: 1.2fr 1fr; }
+    }
+    @media (max-width: 800px) {
+      .container { grid-template-columns: 1fr; }
+    }
+    .card { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; display: flex; flex-direction: column; }
+    .grid-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    button { padding: 12px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: bold; cursor: pointer; }
+    button:hover { background: #3b82f6; }
+    input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; margin-bottom: 8px; }
+    #screen-stream { width: 100%; border-radius: 8px; background: #000; min-height: 240px; object-fit: contain; flex-grow: 1; }
+    #transcript-box { height: 180px; overflow-y: auto; background: #0f172a; padding: 10px; border-radius: 8px; font-size: 0.85rem; }
+    #chat-box { flex-grow: 1; height: 380px; overflow-y: auto; background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b; display: flex; flex-direction: column; gap: 12px; }
+    .chat-bubble { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 0.9rem; line-height: 1.4; word-wrap: break-word; }
+    .chat-user { background: #1e293b; align-self: flex-end; border-bottom-right-radius: 2px; border: 1px solid #334155; color: #f8fafc; }
+    .chat-assistant { background: #0f172a; align-self: flex-start; border-bottom-left-radius: 2px; border: 1px solid #1e293b; color: #e2e8f0; }
+    .chat-streaming-indicator { display: inline-block; width: 6px; height: 14px; background: #fff; margin-left: 4px; animation: blink 0.8s infinite; vertical-align: middle; }
+    @keyframes blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <h2>Prochame Remote Driver Panel</h2>
+  <div class="container">
+    <div class="card">
+      <h3>Live Screen View (Laptop A)</h3>
+      <img id="screen-stream" src="" alt="Waiting for screen stream..." />
+    </div>
+
+    <!-- AI Prompts & Responses Sync Panel -->
+    <div class="card">
+      <h3>AI Prompts & Responses (Laptop A Sync)</h3>
+      <div id="chat-box">
+        <div style="color: #64748b; font-style: italic; text-align: center; margin-top: 50px;">No prompts sent yet. Use System A or type a Custom Instruction to trigger.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Controls</h3>
+      <div class="grid-btns">
+        <button onclick="sendMode('assist')">⚡ Assist</button>
+        <button onclick="sendMode('code')">💻 Solve Code</button>
+        <button onclick="sendMode('reply')">💬 Reply</button>
+        <button onclick="sendMode('summarize')">📝 Summarize</button>
+      </div>
+
+      <h4>Custom Instruction</h4>
+      <input type="text" id="customInput" placeholder="Type specific question or prompt..." />
+      <button style="width:100%" onclick="sendCustom()">Send Custom Query</button>
+
+      <h4>Live Audio Transcript</h4>
+      <div id="transcript-box"></div>
+    </div>
+  </div>
+
+  <script>
+  const socket = io(); // Connects automatically to the host server
+
+  function sendMode(mode) {
+    socket.emit('driver:trigger-mode', { mode, text: '' });
+  }
+
+  function sendCustom() {
+    const input = document.getElementById('customInput');
+    const text = input.value.trim();
+    if (!text) return;
+    socket.emit('driver:trigger-mode', { mode: 'ask', text });
+    input.value = '';
+  }
+
+  // Helper function to keep elements scrolled to the bottom
+  function scrollToBottom(containerId) {
+    const container = document.getElementById(containerId);
+    if (container) {
+      setTimeout(() => {
+        container.scrollTop = container.scrollHeight;
+      }, 10);
+    }
+  }
+
+  // AI Chat Log State & Renderer
+  let messages = [];
+
+  function renderChat() {
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) return;
+
+    if (messages.length === 0) {
+      chatBox.innerHTML = `<div style="color: #64748b; font-style: italic; text-align: center; margin-top: 50px;">No prompts sent yet. Use System A or type a Custom Instruction to trigger.</div>`;
+      return;
+    }
+
+    chatBox.innerHTML = '';
+    messages.forEach((msg) => {
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${msg.role === 'user' ? 'chat-user' : 'chat-assistant'}`;
+      
+      let formattedText = msg.text || '';
+      
+      // Escape HTML
+      formattedText = formattedText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      
+      // Basic formatting (linebreaks and code inline highlight)
+      formattedText = formattedText.replace(/\n/g, '<br>');
+      formattedText = formattedText.replace(/`([^`]+)`/g, '<code style="background: rgba(255,255,255,0.15); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em; color: #f43f5e;">$1</code>');
+
+      bubble.innerHTML = formattedText;
+
+      if (msg.role === 'assistant' && msg.isStreaming) {
+        const cursor = document.createElement('span');
+        cursor.className = 'chat-streaming-indicator';
+        bubble.appendChild(cursor);
+      }
+
+      chatBox.appendChild(bubble);
+    });
+
+    scrollToBottom('chat-box');
+  }
+
+  // 1. ADDED: Listen for 'Enter' key press on custom input
+  document.addEventListener('DOMContentLoaded', () => {
+    const customInput = document.getElementById('customInput');
+    if (customInput) {
+      customInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendCustom();
+        }
+      });
+    }
+  });
+
+  socket.on('driver:screen-frame', (dataUrl) => {
+    document.getElementById('screen-stream').src = dataUrl;
+  });
+
+  socket.on('driver:transcript-turn', (turn) => {
+    const box = document.getElementById('transcript-box');
+    const div = document.createElement('div');
+    div.style.marginBottom = '6px';
+    div.innerHTML = `<b style="color:${turn.sender === 'user' ? '#38bdf8' : '#a855f7'}">${turn.sender.toUpperCase()}:</b> ${turn.text}`;
+    box.appendChild(div);
+    scrollToBottom('transcript-box');
+  });
+
+  // Prompt / Chat stream listeners
+  socket.on('driver:chat-history', (history) => {
+    messages = history || [];
+    renderChat();
+  });
+
+  socket.on('driver:chat-clear', () => {
+    messages = [];
+    renderChat();
+  });
+
+  socket.on('driver:llm-start', (payload) => {
+    if (payload.userBubble) {
+      messages.push({ role: 'user', text: payload.userBubble });
+    }
+    messages.push({ role: 'assistant', text: '', isStreaming: true });
+    renderChat();
+  });
+
+  socket.on('driver:llm-token', (tokenPayload) => {
+    const lastIdx = messages.length - 1;
+    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+      messages[lastIdx].text += tokenPayload.text;
+    }
+    renderChat();
+  });
+
+  socket.on('driver:llm-done', () => {
+    const lastIdx = messages.length - 1;
+    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+      messages[lastIdx].isStreaming = false;
+    }
+    renderChat();
+  });
+
+  socket.on('driver:llm-error', (errorPayload) => {
+    const lastIdx = messages.length - 1;
+    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+      messages[lastIdx].text = errorPayload.message;
+      messages[lastIdx].isStreaming = false;
+    }
+    renderChat();
+  });
+</script>
+
+</body>
+</html>
