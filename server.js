@@ -6,6 +6,9 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
+  maxHttpBufferSize: 1e8,
+  pingTimeout: 60000,
+  pingInterval: 25000,
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
