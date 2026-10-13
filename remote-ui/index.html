@@ -285,6 +285,29 @@
       z-index: 100;
     }
 
+    /* Non-blocking feedback toast */
+    .action-toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(16, 185, 129, 0.95);
+      color: #032014;
+      font-weight: 700;
+      font-size: 0.82rem;
+      padding: 10px 18px;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      z-index: 10000;
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: all 0.25s ease;
+      pointer-events: none;
+    }
+    .action-toast.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     /* HTTPS Guidance Modal */
     .modal-overlay {
       position: fixed;
@@ -424,11 +447,11 @@
           <textarea 
             id="codeNotesInput" 
             class="scratchpad-textarea" 
-            placeholder="Type code, hints, or solution here... (e.g. function solve() { ... })&#10;&#10;Press Ctrl+Enter to send immediately."
+            placeholder="Type code, hints, or solution here... (e.g. function solve() { ... })&#10;&#10;Press Enter to send immediately (Shift+Enter for newline)."
           ></textarea>
 
-          <button class="btn-send-code" onclick="sendNotesToCandidate()">
-            🚀 Send Solution to Candidate (Ctrl+Enter)
+          <button id="btnSendCode" class="btn-send-code" onclick="sendNotesToCandidate()">
+            🚀 Send Solution to Candidate (Enter)
           </button>
 
           <button class="btn" onclick="clearCandidateNotes()" style="margin-top: 4px;">
@@ -610,6 +633,23 @@
       socket.emit('helper:stream-status', { active: false });
     }
 
+    // Non-blocking toast feedback
+    function showToast(msg, duration = 2200) {
+      let toast = document.getElementById('actionToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'actionToast';
+        toast.className = 'action-toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.classList.add('visible');
+      clearTimeout(toast._timeout);
+      toast._timeout = setTimeout(() => {
+        toast.classList.remove('visible');
+      }, duration);
+    }
+
     // Clipboard Paste Handler (Ctrl+V)
     window.addEventListener('paste', (e) => {
       const items = (e.clipboardData || e.originalEvent.clipboardData).items;
@@ -621,7 +661,7 @@
             const dataUrl = event.target.result;
             socket.emit('helper:screen-frame', dataUrl);
             socket.emit('helper:stream-status', { active: true });
-            alert('📸 Screenshot pasted & transmitted to Candidate Overlay!');
+            showToast('📸 Screenshot pasted & transmitted to Candidate Overlay!');
           };
           reader.readAsDataURL(blob);
           break;
@@ -639,7 +679,7 @@
         const dataUrl = e.target.result;
         socket.emit('helper:screen-frame', dataUrl);
         socket.emit('helper:stream-status', { active: true });
-        alert('📸 Image uploaded & transmitted to Candidate Overlay!');
+        showToast('📸 Image uploaded & transmitted to Candidate Overlay!');
       };
       reader.readAsDataURL(file);
       event.target.value = '';
@@ -650,16 +690,28 @@
       const text = codeNotesInput.value.trim();
       if (!text) return;
       socket.emit('helper:notes', { text, timestamp: Date.now() });
-      alert('🚀 Solution sent to Candidate Overlay!');
+      showToast('🚀 Solution sent to Candidate Overlay!');
+
+      const btn = document.getElementById('btnSendCode') || document.querySelector('.btn-send-code');
+      if (btn) {
+        const origText = btn.textContent;
+        btn.textContent = '✓ Solution Sent!';
+        btn.style.background = '#10b981';
+        setTimeout(() => {
+          btn.textContent = origText;
+          btn.style.background = '';
+        }, 1200);
+      }
     }
 
     function clearCandidateNotes() {
       codeNotesInput.value = '';
       socket.emit('helper:notes', { text: '', timestamp: Date.now() });
+      showToast('🗑️ Cleared Candidate notes view');
     }
 
     codeNotesInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendNotesToCandidate();
       }
