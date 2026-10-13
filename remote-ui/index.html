@@ -284,6 +284,77 @@
       gap: 8px;
       z-index: 100;
     }
+
+    /* HTTPS Guidance Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 480px;
+      padding: 24px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .modal-card h3 {
+      font-size: 1.1rem;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-card p {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+
+    .btn-switch-https {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #fff;
+      font-weight: 700;
+      padding: 12px 18px;
+      border-radius: 8px;
+      text-align: center;
+      text-decoration: none;
+      display: block;
+      font-size: 0.9rem;
+      transition: opacity 0.15s;
+    }
+    .btn-switch-https:hover {
+      opacity: 0.9;
+    }
+
+    .modal-subnote {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      line-height: 1.4;
+    }
+
+    .modal-alt-options {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -304,8 +375,11 @@
 
       <div class="toolbar-center">
         <!-- Live Screen Broadcast to Candidate -->
-        <button id="btnShareScreen" class="btn btn-share-screen" onclick="toggleScreenShare()">
+        <button id="btnShareScreen" class="btn btn-share-screen" onclick="handleScreenShareClick()">
           📡 Share My Screen to Candidate
+        </button>
+        <button class="btn" onclick="document.getElementById('fileUploadInput').click()" title="Send an image or screenshot file">
+          📸 Send Screenshot
         </button>
         <button class="btn" onclick="toggleScratchpad()">
           📝 Code & Notes Pad
@@ -344,7 +418,7 @@
           <p class="helper-hints">
             💡 <b>Paste code or type answers below</b>. It will instantly render on the candidate's transparent overlay!
             <br/><br/>
-            📸 <b>Pro-Tip:</b> You can also press <kbd>Ctrl+V</kbd> anywhere to paste a screenshot directly into candidate's view!
+            📸 <b>Instant Paste:</b> Press <kbd>Ctrl+V</kbd> anywhere on this page to paste a screenshot directly into candidate's view!
           </p>
 
           <textarea 
@@ -363,6 +437,43 @@
         </div>
       </aside>
     </main>
+  </div>
+
+  <!-- Hidden File Input for Instant Screenshot Upload -->
+  <input type="file" id="fileUploadInput" accept="image/*" style="display:none;" onchange="handleFileUpload(event)" />
+
+  <!-- HTTPS Security Modal -->
+  <div id="httpsModal" class="modal-overlay">
+    <div class="modal-card">
+      <h3>🔒 Browser Security Notice</h3>
+      <p>
+        Web browsers (Chrome & Edge) restrict live screen recording to <b>Secure Contexts (HTTPS)</b>. Because you opened the plain HTTP address, screen recording is blocked by your browser.
+      </p>
+
+      <a id="httpsLinkBtn" href="" class="btn-switch-https">
+        👉 Switch to Secure HTTPS Version (Click Here)
+      </a>
+
+      <div class="modal-subnote">
+        <b>What to do after clicking:</b><br/>
+        Chrome/Edge will show a one-time warning: <i>"Your connection is not private"</i>.<br/>
+        Simply click <b>"Advanced"</b> → <b>"Proceed to 192.168.1.5 (unsafe)"</b>.<br/>
+        Screen sharing will immediately work!
+      </div>
+
+      <div style="font-size:0.8rem; color:#64748b; text-align:center;">— OR share without switching —</div>
+
+      <div class="modal-alt-options">
+        <button class="btn" style="flex:1" onclick="document.getElementById('fileUploadInput').click(); closeModal();">
+          📸 Upload Screenshot
+        </button>
+        <button class="btn" style="flex:1" onclick="closeModal(); alert('Press Win+Shift+S to capture a screenshot, then press Ctrl+V right here!');">
+          📋 Paste (Ctrl+V)
+        </button>
+      </div>
+
+      <button class="btn" style="align-self:flex-end;" onclick="closeModal()">Close</button>
+    </div>
   </div>
 
   <!-- Offscreen Capture Canvas & Video for Helper Screen Sharing -->
@@ -384,9 +495,16 @@
     const broadcastToast = document.getElementById('broadcastToast');
     const scratchpadDrawer = document.getElementById('scratchpadDrawer');
     const codeNotesInput = document.getElementById('codeNotesInput');
+    const httpsModal = document.getElementById('httpsModal');
+    const httpsLinkBtn = document.getElementById('httpsLinkBtn');
 
     let captureStream = null;
     let streamIntervalId = null;
+
+    // Construct HTTPS URL (port 9443 on the same IP)
+    const hostIp = window.location.hostname;
+    const httpsUrl = `https://${hostIp}:9443`;
+    httpsLinkBtn.href = httpsUrl;
 
     // Socket Connection
     socket.on('connect', () => {
@@ -410,22 +528,33 @@
       candidateImg.src = dataUrl;
     });
 
-    // 1. Share Helper's Screen to Candidate (System B -> System A)
-    async function toggleScreenShare() {
+    // Handle Screen Share Click
+    function handleScreenShareClick() {
       if (captureStream) {
         stopScreenShare();
-      } else {
-        startScreenShare();
+        return;
       }
+
+      // Check if browser allows getDisplayMedia
+      const isHttps = window.location.protocol === 'https:';
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const canShare = navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function';
+
+      if (!canShare && !isHttps && !isLocalhost) {
+        // Show the helpful HTTPS switch modal
+        httpsModal.classList.add('show');
+        return;
+      }
+
+      startScreenShare();
+    }
+
+    function closeModal() {
+      httpsModal.classList.remove('show');
     }
 
     async function startScreenShare() {
       try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-          alert('Screen sharing is not supported in this browser context. You can still paste screenshots with Ctrl+V or send code solutions!');
-          return;
-        }
-
         captureStream = await navigator.mediaDevices.getDisplayMedia({
           video: { cursor: 'always', frameRate: 5 },
           audio: false
@@ -434,7 +563,6 @@
         const video = document.getElementById('captureVideo');
         video.srcObject = captureStream;
 
-        // When user stops sharing from browser banner
         captureStream.getVideoTracks()[0].onended = () => {
           stopScreenShare();
         };
@@ -445,7 +573,6 @@
 
         socket.emit('helper:stream-status', { active: true });
 
-        // Stream frames at ~2 FPS (every 500ms) with high clarity
         const canvas = document.getElementById('captureCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -483,7 +610,7 @@
       socket.emit('helper:stream-status', { active: false });
     }
 
-    // 2. Clipboard Paste Handler: Paste screenshot directly to candidate (Ctrl+V)
+    // Clipboard Paste Handler (Ctrl+V)
     window.addEventListener('paste', (e) => {
       const items = (e.clipboardData || e.originalEvent.clipboardData).items;
       for (const item of items) {
@@ -494,7 +621,7 @@
             const dataUrl = event.target.result;
             socket.emit('helper:screen-frame', dataUrl);
             socket.emit('helper:stream-status', { active: true });
-            alert('📸 Screenshot pasted & sent to Candidate Overlay!');
+            alert('📸 Screenshot pasted & transmitted to Candidate Overlay!');
           };
           reader.readAsDataURL(blob);
           break;
@@ -502,7 +629,23 @@
       }
     });
 
-    // 3. Send Notes / Code to Candidate
+    // File Upload Handler
+    function handleFileUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        socket.emit('helper:screen-frame', dataUrl);
+        socket.emit('helper:stream-status', { active: true });
+        alert('📸 Image uploaded & transmitted to Candidate Overlay!');
+      };
+      reader.readAsDataURL(file);
+      event.target.value = '';
+    }
+
+    // Send Code Notes
     function sendNotesToCandidate() {
       const text = codeNotesInput.value.trim();
       if (!text) return;
