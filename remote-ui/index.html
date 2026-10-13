@@ -699,6 +699,12 @@
       socket.emit('helper:stream-status', { active: false });
     }
 
+    window.addEventListener('beforeunload', () => {
+      if (captureStream) {
+        stopScreenShare();
+      }
+    });
+
     // Non-blocking toast feedback
     function showToast(msg, duration = 2200) {
       let toast = document.getElementById('actionToast');
