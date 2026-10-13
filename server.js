@@ -17,13 +17,17 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 9090;
 
-// Serve the remote-ui directly
+// Serve the remote screen mirror UI
 const remoteUiPath = path.join(__dirname, 'remote-ui');
 app.use(express.static(remoteUiPath));
 
-// Fallback health check
+// Health check endpoint
 app.get('/status', (req, res) => {
-  res.send('Prochame Relay Server is active!');
+  res.json({
+    status: 'online',
+    service: 'Prochame Screen Relay Server',
+    agentConnected: agentSocket !== null
+  });
 });
 
 let agentSocket = null;
@@ -31,71 +35,27 @@ let agentSocket = null;
 io.on('connection', (socket) => {
   console.log('[Relay] Client connected:', socket.id);
 
-  // Register client role: 'agent' or 'driver'
+  // Register client role: 'agent' (Desktop app) or 'driver' (Viewer)
   socket.on('register:role', (role) => {
     if (role === 'agent') {
       agentSocket = socket;
-      console.log('[Relay] Agent (System A) connected:', socket.id);
+      console.log('[Relay] Host Agent (System A) connected:', socket.id);
       socket.join('agents');
     } else if (role === 'driver') {
-      console.log('[Relay] Driver (System B) connected:', socket.id);
+      console.log('[Relay] Viewer Driver (System B) connected:', socket.id);
       socket.join('drivers');
-      
-      // Request full history from Agent to sync to new Driver
-      if (agentSocket) {
-        agentSocket.emit('request:chat-history', { to: socket.id });
-      }
     }
   });
 
-  // Relay screen frames: Agent -> Drivers
+  // Relay screen frames: Host Agent -> Viewer Drivers
   socket.on('driver:screen-frame', (data) => {
     socket.to('drivers').emit('driver:screen-frame', data);
-  });
-
-  // Relay transcript turns: Agent -> Drivers
-  socket.on('driver:transcript-turn', (data) => {
-    socket.to('drivers').emit('driver:transcript-turn', data);
-  });
-
-  // Relay LLM events: Agent -> Drivers
-  socket.on('driver:llm-start', (data) => {
-    socket.to('drivers').emit('driver:llm-start', data);
-  });
-
-  socket.on('driver:llm-token', (data) => {
-    socket.to('drivers').emit('driver:llm-token', data);
-  });
-
-  socket.on('driver:llm-done', (data) => {
-    socket.to('drivers').emit('driver:llm-done', data);
-  });
-
-  socket.on('driver:llm-error', (data) => {
-    socket.to('drivers').emit('driver:llm-error', data);
-  });
-
-  socket.on('driver:chat-history', (data) => {
-    if (data && data.to) {
-      io.to(data.to).emit('driver:chat-history', data.history);
-    } else if (data) {
-      socket.to('drivers').emit('driver:chat-history', data.history);
-    }
-  });
-
-  socket.on('driver:chat-clear', (data) => {
-    socket.to('drivers').emit('driver:chat-clear', data);
-  });
-
-  // Relay commands: Drivers -> Agent
-  socket.on('driver:trigger-mode', (payload) => {
-    socket.to('agents').emit('driver:trigger-mode', payload);
   });
 
   socket.on('disconnect', () => {
     if (agentSocket && agentSocket.id === socket.id) {
       agentSocket = null;
-      console.log('[Relay] Agent (System A) disconnected');
+      console.log('[Relay] Host Agent (System A) disconnected');
     } else {
       console.log('[Relay] Client disconnected:', socket.id);
     }
@@ -103,5 +63,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[Relay] Server listening on port ${PORT}`);
+  console.log(`[Relay] Screen Relay Server listening on port ${PORT}`);
 });

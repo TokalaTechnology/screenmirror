@@ -2,210 +2,374 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Remote Driver Controller</title>
-  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prochame Screen Mirror</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
-    .container { display: grid; grid-template-columns: 1.5fr 1.2fr 340px; gap: 20px; }
-    @media (max-width: 1200px) {
-      .container { grid-template-columns: 1.2fr 1fr; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
-    @media (max-width: 800px) {
-      .container { grid-template-columns: 1fr; }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000000;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
     }
-    .card { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; display: flex; flex-direction: column; }
-    .grid-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-    button { padding: 12px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: bold; cursor: pointer; }
-    button:hover { background: #3b82f6; }
-    input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; margin-bottom: 8px; }
-    #screen-stream { width: 100%; border-radius: 8px; background: #000; min-height: 240px; object-fit: contain; flex-grow: 1; }
-    #transcript-box { height: 180px; overflow-y: auto; background: #0f172a; padding: 10px; border-radius: 8px; font-size: 0.85rem; }
-    #chat-box { flex-grow: 1; height: 380px; overflow-y: auto; background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid #1e293b; display: flex; flex-direction: column; gap: 12px; }
-    .chat-bubble { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 0.9rem; line-height: 1.4; word-wrap: break-word; }
-    .chat-user { background: #1e293b; align-self: flex-end; border-bottom-right-radius: 2px; border: 1px solid #334155; color: #f8fafc; }
-    .chat-assistant { background: #0f172a; align-self: flex-start; border-bottom-left-radius: 2px; border: 1px solid #1e293b; color: #e2e8f0; }
-    .chat-streaming-indicator { display: inline-block; width: 6px; height: 14px; background: #fff; margin-left: 4px; animation: blink 0.8s infinite; vertical-align: middle; }
-    @keyframes blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+
+    /* Screen Container - True Big Screen */
+    #stage {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000000;
+      overflow: hidden;
+    }
+
+    #stage.mode-actual {
+      overflow: auto;
+      display: block;
+    }
+
+    #screen-stream {
+      display: none;
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+      image-rendering: auto;
+    }
+
+    /* Mode: Fit to window (Maximized Big Screen) */
+    #stage.mode-fit #screen-stream {
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+    }
+
+    /* Mode: 1:1 Native Resolution */
+    #stage.mode-actual #screen-stream {
+      width: auto;
+      height: auto;
+      max-width: none;
+      max-height: none;
+      display: block;
+      margin: auto;
+    }
+
+    /* Waiting / Offline Splash Screen */
+    #empty-state {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      color: #64748b;
+      text-align: center;
+      padding: 24px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .pulse-ring {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(56, 189, 248, 0.2);
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    #empty-state h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+
+    #empty-state p {
+      font-size: 0.85rem;
+      color: #475569;
+      max-width: 320px;
+      line-height: 1.5;
+    }
+
+    /* Floating Autohiding Controls Bar */
+    #floating-bar {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 999px;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      opacity: 1;
+    }
+
+    #floating-bar.hidden {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-10px);
+      pointer-events: none;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+    }
+    .status-badge.live .dot {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+    .status-badge.offline .dot {
+      background: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+    }
+
+    .status-badge.live { color: #10b981; }
+    .status-badge.waiting { color: #f59e0b; }
+    .status-badge.offline { color: #ef4444; }
+
+    .info-tag {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-family: monospace;
+    }
+
+    .divider {
+      width: 1px;
+      height: 16px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    /* Buttons */
+    .bar-btn {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+    .bar-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    .bar-btn.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #fff;
+    }
+
+    /* Hide cursor when idle */
+    body.idle-cursor {
+      cursor: none;
+    }
   </style>
 </head>
 <body>
-  <h2>Prochame Remote Driver Panel</h2>
-  <div class="container">
-    <div class="card">
-      <h3>Live Screen View (Laptop A)</h3>
-      <img id="screen-stream" src="" alt="Waiting for screen stream..." />
+
+  <!-- Floating Auto-hiding Controller -->
+  <div id="floating-bar">
+    <div id="statusBadge" class="status-badge waiting">
+      <span class="dot"></span>
+      <span id="statusLabel">Connecting...</span>
     </div>
 
-    <!-- AI Prompts & Responses Sync Panel -->
-    <div class="card">
-      <h3>AI Prompts & Responses (Laptop A Sync)</h3>
-      <div id="chat-box">
-        <div style="color: #64748b; font-style: italic; text-align: center; margin-top: 50px;">No prompts sent yet. Use System A or type a Custom Instruction to trigger.</div>
-      </div>
-    </div>
+    <div class="divider"></div>
 
-    <div class="card">
-      <h3>Controls</h3>
-      <div class="grid-btns">
-        <button onclick="sendMode('assist')">⚡ Assist</button>
-        <button onclick="sendMode('code')">💻 Solve Code</button>
-        <button onclick="sendMode('reply')">💬 Reply</button>
-        <button onclick="sendMode('summarize')">📝 Summarize</button>
-      </div>
+    <span id="resTag" class="info-tag">Waiting for stream</span>
+    <span id="fpsTag" class="info-tag">0s update</span>
 
-      <h4>Custom Instruction</h4>
-      <input type="text" id="customInput" placeholder="Type specific question or prompt..." />
-      <button style="width:100%" onclick="sendCustom()">Send Custom Query</button>
+    <div class="divider"></div>
 
-      <h4>Live Audio Transcript</h4>
-      <div id="transcript-box"></div>
-    </div>
+    <button id="btnFit" class="bar-btn active" onclick="setMode('fit')" title="Fit screen to window">
+      Fit Screen
+    </button>
+    <button id="btnActual" class="bar-btn" onclick="setMode('actual')" title="100% native pixel-for-pixel size">
+      1:1 Native
+    </button>
+    <button class="bar-btn" onclick="toggleFullscreen()" title="Toggle Fullscreen (F)">
+      ⛶ Fullscreen
+    </button>
+    <button class="bar-btn" onclick="saveSnapshot()" title="Save current screenshot (S)">
+      📸 Save
+    </button>
   </div>
 
+  <!-- Big Screen Stage -->
+  <main id="stage" class="mode-fit" ondblclick="toggleFullscreen()">
+    <div id="empty-state">
+      <div class="pulse-ring"></div>
+      <h2>Waiting for Screen Stream</h2>
+      <p>Ensure the Prochame desktop app is running to transmit live screen frames in full clarity.</p>
+    </div>
+    <img id="screen-stream" src="" alt="Live Screen Stream" />
+  </main>
+
   <script>
-  // Connect to the server that served this page (works on Render and localhost)
-  const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
-  socket.on('connect', () => {
-    console.log('[RemoteUI] Connected to relay server, registering as driver...');
-    socket.emit('register:role', 'driver');
-  });
-  socket.on('connect_error', (err) => console.error('[RemoteUI] Connection error:', err.message));
-
-  function sendMode(mode) {
-    socket.emit('driver:trigger-mode', { mode, text: '' });
-  }
-
-  function sendCustom() {
-    const input = document.getElementById('customInput');
-    const text = input.value.trim();
-    if (!text) return;
-    socket.emit('driver:trigger-mode', { mode: 'ask', text });
-    input.value = '';
-  }
-
-  // Helper function to keep elements scrolled to the bottom
-  function scrollToBottom(containerId) {
-    const container = document.getElementById(containerId);
-    if (container) {
-      setTimeout(() => {
-        container.scrollTop = container.scrollHeight;
-      }, 10);
-    }
-  }
-
-  // AI Chat Log State & Renderer
-  let messages = [];
-
-  function renderChat() {
-    const chatBox = document.getElementById('chat-box');
-    if (!chatBox) return;
-
-    if (messages.length === 0) {
-      chatBox.innerHTML = `<div style="color: #64748b; font-style: italic; text-align: center; margin-top: 50px;">No prompts sent yet. Use System A or type a Custom Instruction to trigger.</div>`;
-      return;
-    }
-
-    chatBox.innerHTML = '';
-    messages.forEach((msg) => {
-      const bubble = document.createElement('div');
-      bubble.className = `chat-bubble ${msg.role === 'user' ? 'chat-user' : 'chat-assistant'}`;
-      
-      let formattedText = msg.text || '';
-      
-      // Escape HTML
-      formattedText = formattedText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      
-      // Basic formatting (linebreaks and code inline highlight)
-      formattedText = formattedText.replace(/\n/g, '<br>');
-      formattedText = formattedText.replace(/`([^`]+)`/g, '<code style="background: rgba(255,255,255,0.15); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em; color: #f43f5e;">$1</code>');
-
-      bubble.innerHTML = formattedText;
-
-      if (msg.role === 'assistant' && msg.isStreaming) {
-        const cursor = document.createElement('span');
-        cursor.className = 'chat-streaming-indicator';
-        bubble.appendChild(cursor);
-      }
-
-      chatBox.appendChild(bubble);
+    const socket = io(window.location.origin, {
+      transports: ['websocket', 'polling'],
+      reconnectionDelay: 1000
     });
 
-    scrollToBottom('chat-box');
-  }
+    const stage = document.getElementById('stage');
+    const screenImg = document.getElementById('screen-stream');
+    const emptyState = document.getElementById('empty-state');
+    const floatingBar = document.getElementById('floating-bar');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusLabel = document.getElementById('statusLabel');
+    const resTag = document.getElementById('resTag');
+    const fpsTag = document.getElementById('fpsTag');
+    const btnFit = document.getElementById('btnFit');
+    const btnActual = document.getElementById('btnActual');
 
-  // 1. ADDED: Listen for 'Enter' key press on custom input
-  document.addEventListener('DOMContentLoaded', () => {
-    const customInput = document.getElementById('customInput');
-    if (customInput) {
-      customInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendCustom();
-        }
-      });
+    let lastFrameTime = Date.now();
+    let hideTimer = null;
+
+    // Socket listeners
+    socket.on('connect', () => {
+      statusBadge.className = 'status-badge waiting';
+      statusLabel.textContent = 'Connected (Waiting)';
+      socket.emit('register:role', 'driver');
+    });
+
+    socket.on('disconnect', () => {
+      statusBadge.className = 'status-badge offline';
+      statusLabel.textContent = 'Disconnected';
+      fpsTag.textContent = 'Offline';
+    });
+
+    socket.on('connect_error', () => {
+      statusBadge.className = 'status-badge offline';
+      statusLabel.textContent = 'Connection Error';
+    });
+
+    socket.on('driver:screen-frame', (dataUrl) => {
+      if (!dataUrl) return;
+
+      const now = Date.now();
+      const deltaSec = ((now - lastFrameTime) / 1000).toFixed(1);
+      lastFrameTime = now;
+
+      if (screenImg.style.display !== 'block') {
+        screenImg.style.display = 'block';
+        emptyState.style.display = 'none';
+      }
+
+      screenImg.src = dataUrl;
+
+      statusBadge.className = 'status-badge live';
+      statusLabel.textContent = 'LIVE';
+      fpsTag.textContent = `${deltaSec}s interval`;
+    });
+
+    screenImg.onload = () => {
+      resTag.textContent = `${screenImg.naturalWidth} × ${screenImg.naturalHeight}`;
+    };
+
+    // Mode Toggle: Fit vs 1:1
+    function setMode(mode) {
+      if (mode === 'fit') {
+        stage.className = 'mode-fit';
+        btnFit.classList.add('active');
+        btnActual.classList.remove('active');
+      } else {
+        stage.className = 'mode-actual';
+        btnActual.classList.add('active');
+        btnFit.classList.remove('active');
+      }
     }
-  });
 
-  socket.on('driver:screen-frame', (dataUrl) => {
-    document.getElementById('screen-stream').src = dataUrl;
-  });
-
-  socket.on('driver:transcript-turn', (turn) => {
-    const box = document.getElementById('transcript-box');
-    const div = document.createElement('div');
-    div.style.marginBottom = '6px';
-    div.innerHTML = `<b style="color:${turn.sender === 'user' ? '#38bdf8' : '#a855f7'}">${turn.sender.toUpperCase()}:</b> ${turn.text}`;
-    box.appendChild(div);
-    scrollToBottom('transcript-box');
-  });
-
-  // Prompt / Chat stream listeners
-  socket.on('driver:chat-history', (history) => {
-    messages = history || [];
-    renderChat();
-  });
-
-  socket.on('driver:chat-clear', () => {
-    messages = [];
-    renderChat();
-  });
-
-  socket.on('driver:llm-start', (payload) => {
-    if (payload.userBubble) {
-      messages.push({ role: 'user', text: payload.userBubble });
+    // Fullscreen Toggle
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(console.error);
+      } else {
+        document.exitFullscreen();
+      }
     }
-    messages.push({ role: 'assistant', text: '', isStreaming: true });
-    renderChat();
-  });
 
-  socket.on('driver:llm-token', (tokenPayload) => {
-    const lastIdx = messages.length - 1;
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      messages[lastIdx].text += tokenPayload.text;
+    // Save Screenshot
+    function saveSnapshot() {
+      if (!screenImg.src || screenImg.style.display === 'none') {
+        alert('No screen stream available.');
+        return;
+      }
+      const a = document.createElement('a');
+      a.href = screenImg.src;
+      a.download = `screen-mirror-${Date.now()}.jpg`;
+      a.click();
     }
-    renderChat();
-  });
 
-  socket.on('driver:llm-done', () => {
-    const lastIdx = messages.length - 1;
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      messages[lastIdx].isStreaming = false;
+    // Auto-hide floating bar on mouse inactivity (like video players)
+    function resetHideTimer() {
+      floatingBar.classList.remove('hidden');
+      document.body.classList.remove('idle-cursor');
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        floatingBar.classList.add('hidden');
+        document.body.classList.add('idle-cursor');
+      }, 2500);
     }
-    renderChat();
-  });
 
-  socket.on('driver:llm-error', (errorPayload) => {
-    const lastIdx = messages.length - 1;
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      messages[lastIdx].text = errorPayload.message;
-      messages[lastIdx].isStreaming = false;
-    }
-    renderChat();
-  });
-</script>
+    window.addEventListener('mousemove', resetHideTimer);
+    window.addEventListener('mousedown', resetHideTimer);
+    resetHideTimer();
 
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      } else if (e.key === '0') {
+        setMode('fit');
+      } else if (e.key === '1') {
+        setMode('actual');
+      } else if (e.key === 's' || e.key === 'S') {
+        saveSnapshot();
+      }
+    });
+  </script>
 </body>
 </html>
