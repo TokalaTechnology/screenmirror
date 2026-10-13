@@ -3,60 +3,170 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Prochame Screen Mirror</title>
+  <title>Prochame Helper Controller</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      background: #000000;
+      background: #090d16;
       color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      user-select: none;
     }
 
-    /* Screen Container - True Big Screen */
-    #stage {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
+    /* Layout */
+    .app-shell {
+      display: flex;
+      flex-direction: column;
       height: 100vh;
+    }
+
+    /* Top Navigation Toolbar */
+    .top-toolbar {
+      height: 54px;
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid #1e293b;
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+      flex-shrink: 0;
+    }
+
+    .toolbar-left, .toolbar-center, .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-logo-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 900;
+      color: white;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .status-pill.offline {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    .status-pill.waiting {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    .status-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    /* Buttons */
+    .btn {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      background: #334155;
+      color: #fff;
+    }
+    .btn.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #fff;
+    }
+
+    .btn-share-screen {
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      color: white;
+      border: none;
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+    }
+    .btn-share-screen:hover {
+      background: linear-gradient(135deg, #1d4ed8, #0284c7);
+    }
+    .btn-share-screen.broadcasting {
+      background: #ef4444;
+      box-shadow: 0 0 14px rgba(239, 68, 68, 0.5);
+    }
+
+    /* Main Workspace */
+    .workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Candidate Screen View */
+    .screen-stage {
+      flex: 1;
+      background: #000;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #000000;
+      position: relative;
       overflow: hidden;
     }
-
-    #stage.mode-actual {
+    .screen-stage.mode-actual {
       overflow: auto;
       display: block;
     }
 
-    #screen-stream {
+    #candidate-screen {
       display: none;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
       image-rendering: -webkit-optimize-contrast;
       image-rendering: crisp-edges;
-      image-rendering: auto;
     }
-
-    /* Mode: Fit to window (Maximized Big Screen) */
-    #stage.mode-fit #screen-stream {
-      width: 100vw;
-      height: 100vh;
-      object-fit: contain;
-    }
-
-    /* Mode: 1:1 Native Resolution */
-    #stage.mode-actual #screen-stream {
+    .screen-stage.mode-actual #candidate-screen {
       width: auto;
       height: auto;
       max-width: none;
@@ -65,188 +175,199 @@
       margin: auto;
     }
 
-    /* Waiting / Offline Splash Screen */
-    #empty-state {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
+    /* Side Scratchpad / Solution Drawer */
+    .scratchpad-drawer {
+      width: 380px;
+      background: #0f172a;
+      border-left: 1px solid #1e293b;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 16px;
-      color: #64748b;
-      text-align: center;
-      padding: 24px;
-      pointer-events: none;
-      z-index: 10;
+      transition: width 0.25s ease;
+      z-index: 50;
+    }
+    .scratchpad-drawer.collapsed {
+      width: 0;
+      overflow: hidden;
+      border-left: none;
     }
 
-    .pulse-ring {
-      width: 44px;
-      height: 44px;
-      border: 3px solid rgba(56, 189, 248, 0.2);
-      border-top-color: #38bdf8;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin { 100% { transform: rotate(360deg); } }
-
-    #empty-state h2 {
-      font-size: 1.15rem;
-      font-weight: 600;
-      color: #94a3b8;
-    }
-
-    #empty-state p {
-      font-size: 0.85rem;
-      color: #475569;
-      max-width: 320px;
-      line-height: 1.5;
-    }
-
-    /* Floating Autohiding Controls Bar */
-    #floating-bar {
-      position: fixed;
-      top: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border-radius: 999px;
-      padding: 6px 14px;
+    .drawer-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e293b;
       display: flex;
       align-items: center;
-      gap: 12px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
-      z-index: 1000;
-      transition: opacity 0.3s ease, transform 0.3s ease;
-      opacity: 1;
+      justify-content: space-between;
     }
-
-    #floating-bar.hidden {
-      opacity: 0;
-      transform: translateX(-50%) translateY(-10px);
-      pointer-events: none;
-    }
-
-    .status-badge {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 0.75rem;
+    .drawer-header h3 {
+      font-size: 0.9rem;
       font-weight: 700;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #f59e0b;
-      box-shadow: 0 0 8px #f59e0b;
-    }
-    .status-badge.live .dot {
-      background: #10b981;
-      box-shadow: 0 0 10px #10b981;
-    }
-    .status-badge.offline .dot {
-      background: #ef4444;
-      box-shadow: 0 0 8px #ef4444;
-    }
-
-    .status-badge.live { color: #10b981; }
-    .status-badge.waiting { color: #f59e0b; }
-    .status-badge.offline { color: #ef4444; }
-
-    .info-tag {
-      font-size: 0.75rem;
-      color: #94a3b8;
-      background: rgba(255, 255, 255, 0.06);
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-family: monospace;
-    }
-
-    .divider {
-      width: 1px;
-      height: 16px;
-      background: rgba(255, 255, 255, 0.12);
-    }
-
-    /* Buttons */
-    .bar-btn {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #e2e8f0;
-      border-radius: 6px;
-      padding: 4px 10px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
+      color: #38bdf8;
+      display: flex;
       align-items: center;
-      gap: 4px;
-      transition: all 0.15s ease;
-    }
-    .bar-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
-    }
-    .bar-btn.active {
-      background: #0284c7;
-      border-color: #38bdf8;
-      color: #fff;
+      gap: 6px;
     }
 
-    /* Hide cursor when idle */
-    body.idle-cursor {
-      cursor: none;
+    .drawer-body {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .scratchpad-textarea {
+      flex: 1;
+      min-height: 220px;
+      background: #030712;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      color: #f8fafc;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      resize: none;
+    }
+    .scratchpad-textarea:focus {
+      outline: none;
+      border-color: #38bdf8;
+    }
+
+    .btn-send-code {
+      background: #10b981;
+      color: white;
+      border: none;
+      padding: 10px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-send-code:hover {
+      background: #059669;
+    }
+
+    .helper-hints {
+      font-size: 0.75rem;
+      color: #64748b;
+      line-height: 1.4;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Empty state */
+    .empty-state {
+      position: absolute;
+      text-align: center;
+      color: #64748b;
+    }
+    .empty-state h3 { font-size: 1.1rem; color: #94a3b8; margin-bottom: 6px; }
+
+    /* Floating broadcast indicator */
+    .broadcast-toast {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(16, 185, 129, 0.95);
+      color: #032014;
+      font-weight: 700;
+      font-size: 0.8rem;
+      padding: 8px 14px;
+      border-radius: 20px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      gap: 8px;
+      z-index: 100;
     }
   </style>
 </head>
 <body>
 
-  <!-- Floating Auto-hiding Controller -->
-  <div id="floating-bar">
-    <div id="statusBadge" class="status-badge waiting">
-      <span class="dot"></span>
-      <span id="statusLabel">Connecting...</span>
-    </div>
+  <div class="app-shell">
+    <!-- Top Bar -->
+    <header class="top-toolbar">
+      <div class="toolbar-left">
+        <div class="brand-title">
+          <span class="brand-logo-icon">P</span>
+          Helper Controller (System B)
+        </div>
+        <div id="statusPill" class="status-pill waiting">
+          <span class="status-pulse"></span>
+          <span id="statusText">Connecting...</span>
+        </div>
+      </div>
 
-    <div class="divider"></div>
+      <div class="toolbar-center">
+        <!-- Live Screen Broadcast to Candidate -->
+        <button id="btnShareScreen" class="btn btn-share-screen" onclick="toggleScreenShare()">
+          📡 Share My Screen to Candidate
+        </button>
+        <button class="btn" onclick="toggleScratchpad()">
+          📝 Code & Notes Pad
+        </button>
+      </div>
 
-    <span id="resTag" class="info-tag">Waiting for stream</span>
-    <span id="fpsTag" class="info-tag">0s update</span>
+      <div class="toolbar-right">
+        <button id="btnFit" class="btn active" onclick="setMode('fit')">Fit</button>
+        <button id="btnActual" class="btn" onclick="setMode('actual')">1:1</button>
+        <button class="btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+      </div>
+    </header>
 
-    <div class="divider"></div>
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Candidate's Live Screen -->
+      <div id="stage" class="screen-stage mode-fit" ondblclick="toggleFullscreen()">
+        <div id="emptyState" class="empty-state">
+          <h3>Waiting for Candidate Screen</h3>
+          <p>Candidate's live screen will appear here in full clarity.</p>
+        </div>
+        <img id="candidate-screen" src="" alt="Candidate Screen" />
 
-    <button id="btnFit" class="bar-btn active" onclick="setMode('fit')" title="Fit screen to window">
-      Fit Screen
-    </button>
-    <button id="btnActual" class="bar-btn" onclick="setMode('actual')" title="100% native pixel-for-pixel size">
-      1:1 Native
-    </button>
-    <button class="bar-btn" onclick="toggleFullscreen()" title="Toggle Fullscreen (F)">
-      ⛶ Fullscreen
-    </button>
-    <button class="bar-btn" onclick="saveSnapshot()" title="Save current screenshot (S)">
-      📸 Save
-    </button>
+        <div id="broadcastToast" class="broadcast-toast">
+          <span>● Broadcasting your screen to Candidate's overlay</span>
+        </div>
+      </div>
+
+      <!-- Scratchpad Drawer (Code & Answers) -->
+      <aside id="scratchpadDrawer" class="scratchpad-drawer">
+        <div class="drawer-header">
+          <h3>📝 Send Solutions to Candidate</h3>
+          <button class="btn" style="padding: 2px 8px;" onclick="toggleScratchpad()">✕</button>
+        </div>
+        <div class="drawer-body">
+          <p class="helper-hints">
+            💡 <b>Paste code or type answers below</b>. It will instantly render on the candidate's transparent overlay!
+            <br/><br/>
+            📸 <b>Pro-Tip:</b> You can also press <kbd>Ctrl+V</kbd> anywhere to paste a screenshot directly into candidate's view!
+          </p>
+
+          <textarea 
+            id="codeNotesInput" 
+            class="scratchpad-textarea" 
+            placeholder="Type code, hints, or solution here... (e.g. function solve() { ... })&#10;&#10;Press Ctrl+Enter to send immediately."
+          ></textarea>
+
+          <button class="btn-send-code" onclick="sendNotesToCandidate()">
+            🚀 Send Solution to Candidate (Ctrl+Enter)
+          </button>
+
+          <button class="btn" onclick="clearCandidateNotes()" style="margin-top: 4px;">
+            🗑️ Clear Candidate View
+          </button>
+        </div>
+      </aside>
+    </main>
   </div>
 
-  <!-- Big Screen Stage -->
-  <main id="stage" class="mode-fit" ondblclick="toggleFullscreen()">
-    <div id="empty-state">
-      <div class="pulse-ring"></div>
-      <h2>Waiting for Screen Stream</h2>
-      <p>Ensure the Prochame desktop app is running to transmit live screen frames in full clarity.</p>
-    </div>
-    <img id="screen-stream" src="" alt="Live Screen Stream" />
-  </main>
+  <!-- Offscreen Capture Canvas & Video for Helper Screen Sharing -->
+  <video id="captureVideo" autoplay playsinline style="display:none;"></video>
+  <canvas id="captureCanvas" style="display:none;"></canvas>
 
   <script>
     const socket = io(window.location.origin, {
@@ -254,75 +375,165 @@
       reconnectionDelay: 1000
     });
 
+    const statusPill = document.getElementById('statusPill');
+    const statusText = document.getElementById('statusText');
+    const candidateImg = document.getElementById('candidate-screen');
+    const emptyState = document.getElementById('emptyState');
     const stage = document.getElementById('stage');
-    const screenImg = document.getElementById('screen-stream');
-    const emptyState = document.getElementById('empty-state');
-    const floatingBar = document.getElementById('floating-bar');
-    const statusBadge = document.getElementById('statusBadge');
-    const statusLabel = document.getElementById('statusLabel');
-    const resTag = document.getElementById('resTag');
-    const fpsTag = document.getElementById('fpsTag');
-    const btnFit = document.getElementById('btnFit');
-    const btnActual = document.getElementById('btnActual');
+    const btnShareScreen = document.getElementById('btnShareScreen');
+    const broadcastToast = document.getElementById('broadcastToast');
+    const scratchpadDrawer = document.getElementById('scratchpadDrawer');
+    const codeNotesInput = document.getElementById('codeNotesInput');
 
-    let lastFrameTime = Date.now();
-    let hideTimer = null;
+    let captureStream = null;
+    let streamIntervalId = null;
 
-    // Socket listeners
+    // Socket Connection
     socket.on('connect', () => {
-      statusBadge.className = 'status-badge waiting';
-      statusLabel.textContent = 'Connected (Waiting)';
+      statusPill.className = 'status-pill';
+      statusText.textContent = 'CONNECTED (System A)';
       socket.emit('register:role', 'driver');
     });
 
     socket.on('disconnect', () => {
-      statusBadge.className = 'status-badge offline';
-      statusLabel.textContent = 'Disconnected';
-      fpsTag.textContent = 'Offline';
+      statusPill.className = 'status-pill offline';
+      statusText.textContent = 'DISCONNECTED';
     });
 
-    socket.on('connect_error', () => {
-      statusBadge.className = 'status-badge offline';
-      statusLabel.textContent = 'Connection Error';
-    });
-
+    // Receive Candidate Screen
     socket.on('driver:screen-frame', (dataUrl) => {
       if (!dataUrl) return;
-
-      const now = Date.now();
-      const deltaSec = ((now - lastFrameTime) / 1000).toFixed(1);
-      lastFrameTime = now;
-
-      if (screenImg.style.display !== 'block') {
-        screenImg.style.display = 'block';
+      if (candidateImg.style.display !== 'block') {
+        candidateImg.style.display = 'block';
         emptyState.style.display = 'none';
       }
-
-      screenImg.src = dataUrl;
-
-      statusBadge.className = 'status-badge live';
-      statusLabel.textContent = 'LIVE';
-      fpsTag.textContent = `${deltaSec}s interval`;
+      candidateImg.src = dataUrl;
     });
 
-    screenImg.onload = () => {
-      resTag.textContent = `${screenImg.naturalWidth} × ${screenImg.naturalHeight}`;
-    };
-
-    // Mode Toggle: Fit vs 1:1
-    function setMode(mode) {
-      if (mode === 'fit') {
-        stage.className = 'mode-fit';
-        btnFit.classList.add('active');
-        btnActual.classList.remove('active');
+    // 1. Share Helper's Screen to Candidate (System B -> System A)
+    async function toggleScreenShare() {
+      if (captureStream) {
+        stopScreenShare();
       } else {
-        stage.className = 'mode-actual';
-        btnActual.classList.add('active');
-        btnFit.classList.remove('active');
+        startScreenShare();
       }
     }
 
-    // Fullscreen Toggle
+    async function startScreenShare() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+          alert('Screen sharing is not supported in this browser context. You can still paste screenshots with Ctrl+V or send code solutions!');
+          return;
+        }
+
+        captureStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: 'always', frameRate: 5 },
+          audio: false
+        });
+
+        const video = document.getElementById('captureVideo');
+        video.srcObject = captureStream;
+
+        // When user stops sharing from browser banner
+        captureStream.getVideoTracks()[0].onended = () => {
+          stopScreenShare();
+        };
+
+        btnShareScreen.textContent = '⏹ Stop Sharing Screen';
+        btnShareScreen.classList.add('broadcasting');
+        broadcastToast.style.display = 'flex';
+
+        socket.emit('helper:stream-status', { active: true });
+
+        // Stream frames at ~2 FPS (every 500ms) with high clarity
+        const canvas = document.getElementById('captureCanvas');
+        const ctx = canvas.getContext('2d');
+
+        streamIntervalId = setInterval(() => {
+          if (!video.videoWidth || !video.videoHeight) return;
+
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          const frameData = canvas.toDataURL('image/jpeg', 0.85);
+          socket.emit('helper:screen-frame', frameData);
+        }, 500);
+
+      } catch (err) {
+        console.warn('Screen share canceled or failed:', err);
+        stopScreenShare();
+      }
+    }
+
+    function stopScreenShare() {
+      if (streamIntervalId) {
+        clearInterval(streamIntervalId);
+        streamIntervalId = null;
+      }
+      if (captureStream) {
+        captureStream.getTracks().forEach(t => t.stop());
+        captureStream = null;
+      }
+
+      btnShareScreen.textContent = '📡 Share My Screen to Candidate';
+      btnShareScreen.classList.remove('broadcasting');
+      broadcastToast.style.display = 'none';
+
+      socket.emit('helper:stream-status', { active: false });
+    }
+
+    // 2. Clipboard Paste Handler: Paste screenshot directly to candidate (Ctrl+V)
+    window.addEventListener('paste', (e) => {
+      const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+      for (const item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target.result;
+            socket.emit('helper:screen-frame', dataUrl);
+            socket.emit('helper:stream-status', { active: true });
+            alert('📸 Screenshot pasted & sent to Candidate Overlay!');
+          };
+          reader.readAsDataURL(blob);
+          break;
+        }
+      }
+    });
+
+    // 3. Send Notes / Code to Candidate
+    function sendNotesToCandidate() {
+      const text = codeNotesInput.value.trim();
+      if (!text) return;
+      socket.emit('helper:notes', { text, timestamp: Date.now() });
+      alert('🚀 Solution sent to Candidate Overlay!');
+    }
+
+    function clearCandidateNotes() {
+      codeNotesInput.value = '';
+      socket.emit('helper:notes', { text: '', timestamp: Date.now() });
+    }
+
+    codeNotesInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        sendNotesToCandidate();
+      }
+    });
+
+    // Drawer Toggle
+    function toggleScratchpad() {
+      scratchpadDrawer.classList.toggle('collapsed');
+    }
+
+    // View Modes
+    function setMode(mode) {
+      document.getElementById('btnFit').classList.toggle('active', mode === 'fit');
+      document.getElementById('btnActual').classList.toggle('active', mode === 'actual');
+      stage.className = mode === 'fit' ? 'screen-stage mode-fit' : 'screen-stage mode-actual';
+    }
+
     function toggleFullscreen() {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(console.error);
@@ -330,46 +541,6 @@
         document.exitFullscreen();
       }
     }
-
-    // Save Screenshot
-    function saveSnapshot() {
-      if (!screenImg.src || screenImg.style.display === 'none') {
-        alert('No screen stream available.');
-        return;
-      }
-      const a = document.createElement('a');
-      a.href = screenImg.src;
-      a.download = `screen-mirror-${Date.now()}.jpg`;
-      a.click();
-    }
-
-    // Auto-hide floating bar on mouse inactivity (like video players)
-    function resetHideTimer() {
-      floatingBar.classList.remove('hidden');
-      document.body.classList.remove('idle-cursor');
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => {
-        floatingBar.classList.add('hidden');
-        document.body.classList.add('idle-cursor');
-      }, 2500);
-    }
-
-    window.addEventListener('mousemove', resetHideTimer);
-    window.addEventListener('mousedown', resetHideTimer);
-    resetHideTimer();
-
-    // Keyboard shortcuts
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'f' || e.key === 'F') {
-        toggleFullscreen();
-      } else if (e.key === '0') {
-        setMode('fit');
-      } else if (e.key === '1') {
-        setMode('actual');
-      } else if (e.key === 's' || e.key === 'S') {
-        saveSnapshot();
-      }
-    });
   </script>
 </body>
 </html>
