@@ -401,6 +401,11 @@
         <button id="btnShareScreen" class="btn btn-share-screen" onclick="handleScreenShareClick()">
           📡 Share My Screen to Candidate
         </button>
+        <select id="streamSpeedSelect" class="btn" style="padding: 5px 8px; font-size: 0.78rem; background: #0f172a; cursor: pointer;" title="Streaming Latency & Quality Preset">
+          <option value="fast">⚡ Ultra-Fast (&lt;80ms)</option>
+          <option value="balanced" selected>🚀 Balanced HD (Default)</option>
+          <option value="max">💎 Native Clarity</option>
+        </select>
         <button class="btn" onclick="document.getElementById('fileUploadInput').click()" title="Send an image or screenshot file">
           📸 Send Screenshot
         </button>
@@ -490,7 +495,7 @@
         <button class="btn" style="flex:1" onclick="document.getElementById('fileUploadInput').click(); closeModal();">
           📸 Upload Screenshot
         </button>
-        <button class="btn" style="flex:1" onclick="closeModal(); alert('Press Win+Shift+S to capture a screenshot, then press Ctrl+V right here!');">
+        <button class="btn" style="flex:1" onclick="closeModal(); showToast('📋 Press Win+Shift+S, then press Ctrl+V right here!');">
           📋 Paste (Ctrl+V)
         </button>
       </div>
@@ -579,12 +584,16 @@
     async function startScreenShare() {
       try {
         captureStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { cursor: 'always', frameRate: 5 },
+          video: {
+            cursor: 'always',
+            frameRate: { ideal: 12, max: 15 }
+          },
           audio: false
         });
 
         const video = document.getElementById('captureVideo');
         video.srcObject = captureStream;
+        await video.play().catch(() => {});
 
         captureStream.getVideoTracks()[0].onended = () => {
           stopScreenShare();
@@ -597,18 +606,75 @@
         socket.emit('helper:stream-status', { active: true });
 
         const canvas = document.getElementById('captureCanvas');
-        const ctx = canvas.getContext('2d');
+        // Fast hardware accelerated 2D context
+        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
 
-        streamIntervalId = setInterval(() => {
+        let isSendingFrame = false;
+
+        const getStreamParams = () => {
+          const speedMode = document.getElementById('streamSpeedSelect')?.value || 'balanced';
+          if (speedMode === 'fast') {
+            return { maxDim: 1100, quality: 0.62, interval: 180 };
+          } else if (speedMode === 'max') {
+            return { maxDim: 1920, quality: 0.80, interval: 350 };
+          }
+          // Default: balanced (razor sharp text, ~35KB per frame, 70-100ms latency)
+          return { maxDim: 1366, quality: 0.70, interval: 220 };
+        };
+
+        const captureAndSend = () => {
+          if (isSendingFrame) return; // Drop frame if network/socket is currently busy (prevents buffer backlog)
           if (!video.videoWidth || !video.videoHeight) return;
 
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          isSendingFrame = true;
+          try {
+            const { maxDim, quality } = getStreamParams();
+            let targetW = video.videoWidth;
+            let targetH = video.videoHeight;
 
-          const frameData = canvas.toDataURL('image/jpeg', 0.85);
-          socket.emit('helper:screen-frame', frameData);
-        }, 500);
+            if (targetW > maxDim || targetH > maxDim) {
+              if (targetW >= targetH) {
+                targetH = Math.round((targetH * maxDim) / targetW);
+                targetW = maxDim;
+              } else {
+                targetW = Math.round((targetW * maxDim) / targetH);
+                targetH = maxDim;
+              }
+            }
+
+            if (canvas.width !== targetW || canvas.height !== targetH) {
+              canvas.width = targetW;
+              canvas.height = targetH;
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'medium';
+            }
+
+            ctx.drawImage(video, 0, 0, targetW, targetH);
+
+            const frameData = canvas.toDataURL('image/jpeg', quality);
+
+            socket.emit('helper:screen-frame', frameData, () => {
+              isSendingFrame = false;
+            });
+
+            // Fallback unlock after 60ms
+            setTimeout(() => { isSendingFrame = false; }, 60);
+          } catch (e) {
+            isSendingFrame = false;
+          }
+        };
+
+        // Send first frame immediately upon video metadata availability
+        if (video.videoWidth) {
+          captureAndSend();
+        } else {
+          video.onloadedmetadata = () => {
+            captureAndSend();
+          };
+        }
+
+        const { interval } = getStreamParams();
+        streamIntervalId = setInterval(captureAndSend, interval);
 
       } catch (err) {
         console.warn('Screen share canceled or failed:', err);

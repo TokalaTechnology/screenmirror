@@ -31,6 +31,7 @@ app.get('/status', (req, res) => {
 });
 
 let agentSocket = null;
+let lastAgentFrame = null;
 
 io.on('connection', (socket) => {
   console.log('[Relay] Client connected:', socket.id);
@@ -44,12 +45,30 @@ io.on('connection', (socket) => {
     } else if (role === 'driver') {
       console.log('[Relay] Viewer Driver (System B) connected:', socket.id);
       socket.join('drivers');
+      if (lastAgentFrame) {
+        socket.emit('driver:screen-frame', lastAgentFrame);
+      }
     }
   });
 
   // Relay screen frames: Host Agent -> Viewer Drivers
   socket.on('driver:screen-frame', (data) => {
+    lastAgentFrame = data;
     socket.to('drivers').emit('driver:screen-frame', data);
+  });
+
+  // Relay helper stream & notes: Viewer Driver (System B) -> Host Agent (System A)
+  socket.on('helper:screen-frame', (data, ack) => {
+    socket.to('agents').emit('helper:screen-frame', data);
+    if (typeof ack === 'function') ack();
+  });
+
+  socket.on('helper:stream-status', (status) => {
+    socket.to('agents').emit('helper:stream-status', status);
+  });
+
+  socket.on('helper:notes', (payload) => {
+    socket.to('agents').emit('helper:notes', payload);
   });
 
   socket.on('disconnect', () => {
